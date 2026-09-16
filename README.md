@@ -44,6 +44,19 @@ Inspired by the popular [`starxg/mybatis-log-plugin-free`](https://github.com/st
 
 ---
 
+## Screenshots
+
+### 1. Real-Time Interception & Execution Console
+![SQLAlchemy Log Free Overview](docs/images/screenshot_main.png)
+
+### 2. SQL Formatting (Pretty Print Comparison)
+![SQL Formatting Comparison](docs/images/screenshot_pretty_print.png)
+
+### 3. Preferences & SQL Color Customization
+![Settings Dialog](docs/images/screenshot_settings.png)
+
+---
+
 ## Installation
 
 ### Method 1: Install from Plugin Zip

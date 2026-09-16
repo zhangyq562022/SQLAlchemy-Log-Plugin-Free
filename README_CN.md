@@ -44,6 +44,19 @@
 
 ---
 
+## 插件截图
+
+### 1. 实时拦截控制台与还原执行效果
+![SQLAlchemy Log Free 核心功能截图](docs/images/screenshot_main.png)
+
+### 2. SQL 格式化美化对比（Pretty Print 开关）
+![Pretty Print 美化效果对比](docs/images/screenshot_pretty_print.png)
+
+### 3. 自定义配置与高亮颜色设置
+![设置弹窗](docs/images/screenshot_settings.png)
+
+---
+
 ## 安装方式
 
 ### 方式 1：本地 Zip 包离线安装
