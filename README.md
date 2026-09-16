@@ -60,11 +60,11 @@ Inspired by the popular [`starxg/mybatis-log-plugin-free`](https://github.com/st
 ## Installation
 
 ### Method 1: Install from Plugin Zip
-1. Download or build the plugin distribution package `SQLAlchemy-Log-Plugin-Free-1.0.1.zip`.
+1. Download or build the plugin distribution package `SQLAlchemy-Log-Plugin-Free-1.0.2.zip`.
 2. In PyCharm / IntelliJ:
    - Go to **Settings** (`Cmd + ,` or `Ctrl + Alt + S`) &rarr; **Plugins**.
    - Click the gear icon :gear: &rarr; **Install Plugin from Disk...**.
-   - Select the `SQLAlchemy-Log-Plugin-Free-1.0.1.zip` file.
+   - Select the `SQLAlchemy-Log-Plugin-Free-1.0.2.zip` file.
    - Click **Restart IDE**.
 
 ### Method 2: Build from Source
@@ -77,7 +77,7 @@ cd SQLAlchemy-Log-Plugin-Free
 ./gradlew buildPlugin
 
 # Output zip location:
-# build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.1.zip
+# build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.2.zip
 ```
 
 ---

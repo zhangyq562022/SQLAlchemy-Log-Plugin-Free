@@ -1,6 +1,5 @@
 package com.github.sqlalchemylog.action;
 
-import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -14,7 +13,7 @@ public class ClearAllAction extends DumbAwareAction {
     private final ConsoleView consoleView;
 
     public ClearAllAction(ConsoleView consoleView) {
-        super(ExecutionBundle.message("clear.all.from.console.action.name"), "Clear All", AllIcons.Actions.GC);
+        super("Clear All", "Clear All", AllIcons.Actions.GC);
         this.consoleView = consoleView;
     }
 

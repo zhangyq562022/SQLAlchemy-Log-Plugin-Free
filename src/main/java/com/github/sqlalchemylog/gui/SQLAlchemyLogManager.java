@@ -4,7 +4,6 @@ import com.github.sqlalchemylog.Icons;
 import com.github.sqlalchemylog.action.*;
 import com.github.sqlalchemylog.format.BasicFormatter;
 import com.intellij.execution.DefaultExecutionResult;
-import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
@@ -14,6 +13,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.execution.ui.RunContentDescriptor;
+import com.intellij.execution.ui.RunContentManager;
 import com.intellij.execution.ui.RunnerLayoutUi;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
@@ -62,6 +62,7 @@ public class SQLAlchemyLogManager implements Disposable {
     private volatile String enginePrefix;
     private volatile String parametersPrefix;
     private volatile boolean running = true;
+    private volatile boolean disposed = false;
 
     private final List<String> keywords = new ArrayList<>();
 
@@ -96,10 +97,10 @@ public class SQLAlchemyLogManager implements Disposable {
         resetKeywords(propertiesComponent.getValue(KEYWORDS_KEY, "PRAGMA\ntable_info"));
 
         ApplicationManager.getApplication().invokeLater(() -> {
-            if (project.isDisposed() || Disposer.isDisposed(this)) {
+            if (project.isDisposed() || isDisposed()) {
                 return;
             }
-            ExecutionManager.getInstance(project).getContentManager().showRunContent(
+            RunContentManager.getInstance(project).showRunContent(
                     SQLAlchemyLogExecutor.getInstance(),
                     descriptor
             );
@@ -113,8 +114,8 @@ public class SQLAlchemyLogManager implements Disposable {
     public static Editor getEditor(ConsoleView consoleView) {
         if (consoleView == null) return null;
         if (consoleView instanceof DataProvider) {
-            Editor editor = CommonDataKeys.EDITOR.getData((DataProvider) consoleView);
-            if (editor != null) return editor;
+            Object data = ((DataProvider) consoleView).getData(CommonDataKeys.EDITOR.getName());
+            if (data instanceof Editor) return (Editor) data;
         }
         try {
             java.lang.reflect.Method m = consoleView.getClass().getMethod("getEditor");
@@ -131,7 +132,7 @@ public class SQLAlchemyLogManager implements Disposable {
 
         final Editor editor = getEditor(console);
         if (editor != null) {
-            editor.getDocument().addDocumentListener(new RangeHighlighterDocumentListener(editor));
+            editor.getDocument().addDocumentListener(new RangeHighlighterDocumentListener(editor), this);
         }
 
         return console;
@@ -234,10 +235,14 @@ public class SQLAlchemyLogManager implements Disposable {
         return running;
     }
 
+    public boolean isDisposed() {
+        return disposed;
+    }
+
     @Nullable
     public static SQLAlchemyLogManager getInstance(@NotNull Project project) {
         SQLAlchemyLogManager manager = project.getUserData(KEY);
-        if (manager != null && Disposer.isDisposed(manager)) {
+        if (manager != null && manager.isDisposed()) {
             manager = null;
         }
         return manager;
@@ -261,7 +266,7 @@ public class SQLAlchemyLogManager implements Disposable {
     @NotNull
     public static SQLAlchemyLogManager createInstance(@NotNull Project project) {
         SQLAlchemyLogManager manager = getInstance(project);
-        if (manager != null && !Disposer.isDisposed(manager)) {
+        if (manager != null && !manager.isDisposed()) {
             Disposer.dispose(manager);
         }
 
@@ -310,11 +315,12 @@ public class SQLAlchemyLogManager implements Disposable {
 
     @Override
     public void dispose() {
+        this.disposed = true;
         project.putUserData(KEY, null);
         stop();
         ApplicationManager.getApplication().invokeLater(() -> {
             if (!project.isDisposed()) {
-                ExecutionManager.getInstance(project).getContentManager().removeRunContent(
+                RunContentManager.getInstance(project).removeRunContent(
                         SQLAlchemyLogExecutor.getInstance(),
                         descriptor
                 );

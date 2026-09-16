@@ -40,7 +40,6 @@ public abstract class JumpSqlAction extends AnAction {
         if (editor == null) return;
         editor.getCaretModel().getPrimaryCaret().moveToOffset(offset);
         editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() ->
-                IdeFocusManager.getGlobalInstance().requestFocus(editor.getContentComponent(), true));
+        IdeFocusManager.getGlobalInstance().requestFocus(editor.getContentComponent(), true);
     }
 }
