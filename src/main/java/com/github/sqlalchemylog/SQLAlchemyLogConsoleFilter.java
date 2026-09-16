@@ -28,22 +28,28 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
     public static final String SELECT_SQL_COLOR_KEY = "SQLAlchemyLog.SelectSQLColor";
     public static final String TX_SQL_COLOR_KEY = "SQLAlchemyLog.TxSQLColor";
 
-    // Pattern to match parameter lines like [generated in 0.00018s] ('Alice', 18) or [raw sql] ()
-    private static final Pattern PARAM_LINE_PATTERN = Pattern.compile("(\\[[^\\]]+\\])\\s*(.*)");
+    // Matches message start after engine: either [timing/param] or SQL/Tx keyword
+    private static final Pattern AFTER_ENGINE_PATTERN = Pattern.compile(
+            "(\\[[^\\]]*\\]\\s*.*|\\b(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|TRUNCATE|MERGE|EXPLAIN|WITH|SHOW|SET|BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\\b.*)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+    );
+
+    // Matches parameter lines like [generated in 0.00018s] ('Alice', 18) or [raw sql] {}
+    private static final Pattern PARAM_LINE_PATTERN = Pattern.compile("^(\\[[^\\]]+\\])\\s*(.*)", Pattern.DOTALL);
 
     private static final Pattern TX_PATTERN = Pattern.compile(
-            "\\b(BEGIN(?:\\s*\\([^)]*\\))?|COMMIT|ROLLBACK|SAVEPOINT\\s+\\w+|RELEASE\\s+SAVEPOINT\\s+\\w+)\\b",
+            "^(BEGIN(?:\\s*\\([^)]*\\))?|COMMIT|ROLLBACK|SAVEPOINT\\s+\\w+|RELEASE\\s+SAVEPOINT\\s+\\w+)$",
             Pattern.CASE_INSENSITIVE
     );
 
-    private static final Pattern NEW_QUERY_START = Pattern.compile(
+    private static final Pattern SQL_START_PATTERN = Pattern.compile(
             "^(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|TRUNCATE|MERGE|EXPLAIN|WITH|SHOW|SET)\\b",
             Pattern.CASE_INSENSITIVE
     );
 
     private final Project project;
 
-    private StringBuilder pendingSql = null;
+    private final StringBuilder pendingSql = new StringBuilder();
     private String lastLogPrefix = "";
 
     public SQLAlchemyLogConsoleFilter(Project project) {
@@ -51,83 +57,81 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
     }
 
     @Override
-    public @Nullable Result applyFilter(@NotNull String line, int entireLength) {
-        final SQLAlchemyLogManager manager = SQLAlchemyLogManager.getInstance(project);
-        if (manager == null || !manager.isRunning()) {
-            return null;
-        }
-
+    public synchronized @Nullable Result applyFilter(@NotNull String line, int entireLength) {
         String trimmed = line.trim();
         if (trimmed.isEmpty()) {
             return null;
         }
 
+        String enginePrefix = getEnginePrefix();
+        int engineIdx = line.toLowerCase(Locale.ROOT).indexOf(enginePrefix.toLowerCase(Locale.ROOT));
+
+        String content;
+        String logPrefix = "";
+        boolean isEngineLine = (engineIdx != -1);
+
+        if (isEngineLine) {
+            String afterEngine = line.substring(engineIdx + enginePrefix.length());
+            Matcher matcher = AFTER_ENGINE_PATTERN.matcher(afterEngine);
+            if (matcher.find()) {
+                int startOffset = matcher.start();
+                content = afterEngine.substring(startOffset).trim();
+                logPrefix = line.substring(0, engineIdx + enginePrefix.length() + startOffset).trim();
+                logPrefix = cleanPrefix(logPrefix);
+            } else {
+                content = afterEngine.trim();
+                logPrefix = line.substring(0, engineIdx + enginePrefix.length()).trim();
+            }
+        } else {
+            content = trimmed;
+        }
+
+        // If not an engine line and no query currently pending, ignore
+        if (!isEngineLine && pendingSql.length() == 0) {
+            return null;
+        }
+
         // Keyword exclusion check
-        List<String> keywords = manager.getKeywords();
+        List<String> keywords = getKeywords();
         for (String kw : keywords) {
-            if (!kw.isEmpty() && line.contains(kw)) {
-                pendingSql = null;
+            if (!kw.isEmpty() && (line.contains(kw) || content.contains(kw))) {
+                pendingSql.setLength(0);
                 return null;
             }
         }
 
-        String enginePrefix = manager.getEnginePrefix();
-        boolean hasEnginePrefix = line.contains(enginePrefix);
-
-        String contentAfterPrefix = line;
-        String logPrefix = "";
-        if (hasEnginePrefix) {
-            int idx = line.indexOf(enginePrefix);
-            int colonIdx = line.indexOf(':', idx + enginePrefix.length());
-            if (colonIdx != -1) {
-                logPrefix = line.substring(0, colonIdx + 1).trim();
-                contentAfterPrefix = line.substring(colonIdx + 1).trim();
-            } else {
-                logPrefix = line.substring(0, idx + enginePrefix.length()).trim();
-                contentAfterPrefix = line.substring(idx + enginePrefix.length()).trim();
-            }
+        // Lazy auto-initialize manager so user does NOT have to manually click Tools -> ...
+        final SQLAlchemyLogManager manager = SQLAlchemyLogManager.getInstanceOrCreate(project);
+        if (!manager.isRunning()) {
+            return null;
         }
 
         // Check transaction commands (BEGIN, COMMIT, ROLLBACK)
-        Matcher txMatcher = TX_PATTERN.matcher(contentAfterPrefix);
-        if (hasEnginePrefix && txMatcher.matches()) {
-            if (pendingSql != null && pendingSql.length() > 0) {
+        Matcher txMatcher = TX_PATTERN.matcher(content);
+        if (isEngineLine && txMatcher.matches()) {
+            if (pendingSql.length() > 0) {
                 flushPendingSql(manager, lastLogPrefix);
             }
             int txColor = PropertiesComponent.getInstance(project).getInt(
                     TX_SQL_COLOR_KEY,
                     new JBColor(0x616161, 0x808080).getRGB()
             );
-            manager.println(logPrefix, contentAfterPrefix, txColor);
+            manager.println(logPrefix, content, txColor);
             return null;
         }
 
-        // Check if this is a parameter line: e.g. [generated in 0.00018s] ('Alice', 18)
-        String paramIndicator = manager.getParametersPrefix();
-        boolean isParamLine = contentAfterPrefix.startsWith(paramIndicator) || contentAfterPrefix.contains(paramIndicator);
+        // Check parameter line: starts with [ or matches PARAM_LINE_PATTERN
+        Matcher paramMatcher = PARAM_LINE_PATTERN.matcher(content);
+        if (paramMatcher.find()) {
+            String timingInfo = paramMatcher.group(1);
+            String paramLiteral = paramMatcher.group(2).trim();
 
-        if (isParamLine) {
-            Matcher paramMatcher = PARAM_LINE_PATTERN.matcher(contentAfterPrefix);
-            String timingInfo = "";
-            String paramLiteral = "";
-
-            if (paramMatcher.find()) {
-                timingInfo = paramMatcher.group(1);
-                paramLiteral = paramMatcher.group(2).trim();
-            } else if (contentAfterPrefix.startsWith("[")) {
-                int closeBracket = contentAfterPrefix.indexOf(']');
-                if (closeBracket != -1) {
-                    timingInfo = contentAfterPrefix.substring(0, closeBracket + 1);
-                    paramLiteral = contentAfterPrefix.substring(closeBracket + 1).trim();
-                }
-            }
-
-            if (pendingSql != null && pendingSql.length() > 0) {
+            if (pendingSql.length() > 0) {
                 PythonLiteralParser.ParsedParams parsedParams = PythonLiteralParser.parse(paramLiteral);
                 List<String> restoredQueries = SQLAlchemySqlParser.restoreSql(pendingSql.toString(), parsedParams);
 
                 String fullPrefix = lastLogPrefix;
-                if (!timingInfo.isEmpty()) {
+                if (timingInfo != null && !timingInfo.isEmpty()) {
                     fullPrefix = fullPrefix.isEmpty() ? timingInfo : (fullPrefix + " " + timingInfo);
                 }
 
@@ -136,33 +140,25 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
                     manager.println(fullPrefix, restored, color);
                 }
 
-                pendingSql = null;
+                pendingSql.setLength(0);
                 lastLogPrefix = "";
                 return null;
             }
         }
 
-        // If it starts a new SQL query
-        String potentialSql = contentAfterPrefix.trim();
-        Matcher newQueryMatcher = NEW_QUERY_START.matcher(potentialSql);
-
-        if (hasEnginePrefix && newQueryMatcher.find()) {
-            // Flush any previous query if still pending
-            if (pendingSql != null && pendingSql.length() > 0) {
+        // If it's a new SQL query line
+        if (isEngineLine && isSqlStart(content)) {
+            if (pendingSql.length() > 0) {
                 flushPendingSql(manager, lastLogPrefix);
             }
-            pendingSql = new StringBuilder(potentialSql);
+            pendingSql.append(content);
             lastLogPrefix = logPrefix;
             return null;
         }
 
-        // If we are currently collecting a multi-line SQL statement
-        if (pendingSql != null) {
-            if (hasEnginePrefix) {
-                pendingSql.append("\n").append(contentAfterPrefix);
-            } else {
-                pendingSql.append("\n").append(line.trim());
-            }
+        // If currently accumulating multi-line SQL
+        if (pendingSql.length() > 0) {
+            pendingSql.append("\n").append(content);
             return null;
         }
 
@@ -170,7 +166,7 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
     }
 
     private void flushPendingSql(SQLAlchemyLogManager manager, String prefix) {
-        if (pendingSql == null || pendingSql.length() == 0) {
+        if (pendingSql.length() == 0) {
             return;
         }
         String sql = pendingSql.toString().trim();
@@ -178,7 +174,31 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
             int color = getSqlColor(sql);
             manager.println(prefix, sql, color);
         }
-        pendingSql = null;
+        pendingSql.setLength(0);
+    }
+
+    private boolean isSqlStart(String content) {
+        return SQL_START_PATTERN.matcher(content).find();
+    }
+
+    private String cleanPrefix(String prefix) {
+        String p = prefix.trim();
+        while (p.endsWith(":") || p.endsWith("-") || p.endsWith("]")) {
+            p = p.substring(0, p.length() - 1).trim();
+        }
+        return p;
+    }
+
+    private String getEnginePrefix() {
+        return PropertiesComponent.getInstance(project).getValue(ENGINE_PREFIX_KEY, "sqlalchemy.engine");
+    }
+
+    private List<String> getKeywords() {
+        SQLAlchemyLogManager manager = SQLAlchemyLogManager.getInstance(project);
+        if (manager != null) {
+            return manager.getKeywords();
+        }
+        return List.of();
     }
 
     private int getSqlColor(String sql) {

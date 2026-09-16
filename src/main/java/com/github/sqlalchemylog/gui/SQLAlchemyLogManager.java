@@ -21,6 +21,8 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actions.ScrollToTheEndToolbarAction;
@@ -36,7 +38,6 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.content.Content;
 import com.intellij.util.messages.MessageBusConnection;
@@ -66,7 +67,7 @@ public class SQLAlchemyLogManager implements Disposable {
     private final AtomicInteger counter = new AtomicInteger();
     private volatile String enginePrefix;
     private volatile String parametersPrefix;
-    private volatile boolean running = false;
+    private volatile boolean running = true;
 
     private final List<String> keywords = new ArrayList<>();
 
@@ -100,25 +101,19 @@ public class SQLAlchemyLogManager implements Disposable {
         this.parametersPrefix = propertiesComponent.getValue(PARAMETERS_PREFIX_KEY, "[");
         resetKeywords(propertiesComponent.getValue(KEYWORDS_KEY, "PRAGMA\ntable_info"));
 
-        messageBusConnection.subscribe(ToolWindowManagerListener.TOPIC, new ToolWindowManagerListener() {
-            @Override
-            public void stateChanged() {
-                ToolWindow tw = getToolWindow();
-                if (tw != null && !tw.isAvailable()) {
-                    Disposer.dispose(SQLAlchemyLogManager.this);
-                }
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (project.isDisposed() || Disposer.isDisposed(this)) {
+                return;
             }
-        });
-
-        ExecutionManager.getInstance(project).getContentManager().showRunContent(
-                SQLAlchemyLogExecutor.getInstance(),
-                descriptor
-        );
-
-        ToolWindow tw = getToolWindow();
-        if (tw != null) {
-            tw.activate(null);
-        }
+            ExecutionManager.getInstance(project).getContentManager().showRunContent(
+                    SQLAlchemyLogExecutor.getInstance(),
+                    descriptor
+            );
+            ToolWindow tw = getToolWindow();
+            if (tw != null) {
+                tw.activate(null);
+            }
+        }, ModalityState.any());
     }
 
     private ConsoleViewImpl createConsoleView() {
@@ -238,14 +233,25 @@ public class SQLAlchemyLogManager implements Disposable {
     @Nullable
     public static SQLAlchemyLogManager getInstance(@NotNull Project project) {
         SQLAlchemyLogManager manager = project.getUserData(KEY);
-        if (manager != null) {
-            ToolWindow tw = manager.getToolWindow();
-            if (tw == null || !tw.isAvailable()) {
-                Disposer.dispose(manager);
-                manager = null;
-            }
+        if (manager != null && Disposer.isDisposed(manager)) {
+            manager = null;
         }
         return manager;
+    }
+
+    @NotNull
+    public static SQLAlchemyLogManager getInstanceOrCreate(@NotNull Project project) {
+        SQLAlchemyLogManager manager = getInstance(project);
+        if (manager != null) {
+            return manager;
+        }
+        synchronized (project) {
+            manager = getInstance(project);
+            if (manager != null) {
+                return manager;
+            }
+            return createInstance(project);
+        }
     }
 
     @NotNull
@@ -279,7 +285,7 @@ public class SQLAlchemyLogManager implements Disposable {
     }
 
     public String getEnginePrefix() {
-        return enginePrefix;
+        return enginePrefix != null ? enginePrefix : "sqlalchemy.engine";
     }
 
     public void setEnginePrefix(String enginePrefix) {
@@ -287,7 +293,7 @@ public class SQLAlchemyLogManager implements Disposable {
     }
 
     public String getParametersPrefix() {
-        return parametersPrefix;
+        return parametersPrefix != null ? parametersPrefix : "[";
     }
 
     public void setParametersPrefix(String parametersPrefix) {
@@ -302,10 +308,14 @@ public class SQLAlchemyLogManager implements Disposable {
     public void dispose() {
         project.putUserData(KEY, null);
         stop();
-        ExecutionManager.getInstance(project).getContentManager().removeRunContent(
-                SQLAlchemyLogExecutor.getInstance(),
-                descriptor
-        );
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (!project.isDisposed()) {
+                ExecutionManager.getInstance(project).getContentManager().removeRunContent(
+                        SQLAlchemyLogExecutor.getInstance(),
+                        descriptor
+                );
+            }
+        }, ModalityState.any());
     }
 
     private static final class RangeHighlighterDocumentListener implements DocumentListener {
