@@ -10,7 +10,6 @@ import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
 import com.intellij.execution.filters.TextConsoleBuilder;
 import com.intellij.execution.filters.TextConsoleBuilderFactory;
-import com.intellij.execution.impl.ConsoleViewImpl;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
@@ -18,18 +17,13 @@ import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.RunnerLayoutUi;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionGroup;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.actions.ScrollToTheEndToolbarAction;
-import com.intellij.openapi.editor.actions.ToggleUseSoftWrapsToolbarAction;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
@@ -60,7 +54,7 @@ public class SQLAlchemyLogManager implements Disposable {
 
     private final Map<Integer, ConsoleViewContentType> consoleViewContentTypes = new ConcurrentHashMap<>();
 
-    private final ConsoleViewImpl consoleView;
+    private final ConsoleView consoleView;
     private final Project project;
     private final RunContentDescriptor descriptor;
 
@@ -116,12 +110,26 @@ public class SQLAlchemyLogManager implements Disposable {
         }, ModalityState.any());
     }
 
-    private ConsoleViewImpl createConsoleView() {
+    public static Editor getEditor(ConsoleView consoleView) {
+        if (consoleView == null) return null;
+        if (consoleView instanceof DataProvider) {
+            Editor editor = CommonDataKeys.EDITOR.getData((DataProvider) consoleView);
+            if (editor != null) return editor;
+        }
+        try {
+            java.lang.reflect.Method m = consoleView.getClass().getMethod("getEditor");
+            return (Editor) m.invoke(consoleView);
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private ConsoleView createConsoleView() {
         TextConsoleBuilder consoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project);
-        final ConsoleViewImpl console = (ConsoleViewImpl) consoleBuilder.getConsole();
+        final ConsoleView console = consoleBuilder.getConsole();
         console.getComponent();
 
-        final Editor editor = console.getEditor();
+        final Editor editor = getEditor(console);
         if (editor != null) {
             editor.getDocument().addDocumentListener(new RangeHighlighterDocumentListener(editor));
         }
@@ -130,32 +138,28 @@ public class SQLAlchemyLogManager implements Disposable {
     }
 
     private ActionGroup createActionToolbar() {
-        final ConsoleViewImpl console = this.consoleView;
+        final ConsoleView console = this.consoleView;
+        final Editor editor = getEditor(console);
         final DefaultActionGroup actionGroup = new DefaultActionGroup();
 
         actionGroup.add(new RerunAction());
         actionGroup.add(new StopAction(this));
         actionGroup.add(new SettingsAction(this));
         actionGroup.addSeparator();
-        actionGroup.add(new PreviousSqlAction(console));
-        actionGroup.add(new NextSqlAction(console));
+        actionGroup.add(new PreviousSqlAction(console, editor));
+        actionGroup.add(new NextSqlAction(console, editor));
         actionGroup.addSeparator();
 
-        actionGroup.add(new ToggleUseSoftWrapsToolbarAction(SoftWrapAppliancePlaces.CONSOLE) {
-            @Nullable
-            @Override
-            protected Editor getEditor(@NotNull AnActionEvent e) {
-                return console.getEditor();
+        for (AnAction action : console.createConsoleActions()) {
+            String name = action.getClass().getSimpleName();
+            if (name.contains("SoftWrap") || name.contains("ScrollToTheEnd")) {
+                actionGroup.add(action);
             }
-        });
-
-        if (console.getEditor() != null) {
-            actionGroup.add(new ScrollToTheEndToolbarAction(console.getEditor()));
         }
 
         actionGroup.add(new PrettyPrintToggleAction());
         actionGroup.addSeparator();
-        actionGroup.add(new CopySqlAction(console));
+        actionGroup.add(new CopySqlAction(console, editor));
         actionGroup.add(new ClearAllAction(console));
 
         return actionGroup;

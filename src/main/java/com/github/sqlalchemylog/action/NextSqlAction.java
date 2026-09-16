@@ -1,17 +1,17 @@
 package com.github.sqlalchemylog.action;
 
-import com.intellij.execution.impl.ConsoleViewImpl;
+import com.intellij.execution.ui.ConsoleView;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.editor.ex.MarkupIterator;
-import com.intellij.openapi.editor.ex.MarkupModelEx;
-import com.intellij.openapi.editor.ex.RangeHighlighterEx;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.markup.MarkupModel;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
 import org.jetbrains.annotations.NotNull;
 
 public class NextSqlAction extends JumpSqlAction {
 
-    public NextSqlAction(ConsoleViewImpl consoleView) {
-        super("Next SQL", "Navigate to next SQL statement", AllIcons.Actions.NextOccurence, consoleView);
+    public NextSqlAction(ConsoleView consoleView, Editor editor) {
+        super("Next SQL", "Navigate to next SQL statement", AllIcons.Actions.NextOccurence, consoleView, editor);
     }
 
     @Override
@@ -26,9 +26,13 @@ public class NextSqlAction extends JumpSqlAction {
             return;
         }
 
-        final int movedOffset = jump(offset, textLength, true);
-        if (movedOffset > -1 && e.getInputEvent() != null && e.getInputEvent().isShiftDown()) {
-            editor.getSelectionModel().setSelection(offset - 2, movedOffset);
+        RangeHighlighter target = findNextHighlighter(offset);
+        if (target != null) {
+            int movedOffset = target.getStartOffset();
+            moveTo(movedOffset);
+            if (e.getInputEvent() != null && e.getInputEvent().isShiftDown()) {
+                editor.getSelectionModel().setSelection(offset - 2, movedOffset);
+            }
         }
     }
 
@@ -37,28 +41,29 @@ public class NextSqlAction extends JumpSqlAction {
         e.getPresentation().setEnabled(hasNext());
     }
 
-    @Override
-    protected boolean isValid(RangeHighlighterEx next, int startOffset, int endOffset) {
-        return super.isValid(next, startOffset, endOffset) &&
-                startOffset >= 0 &&
-                editor.getDocument().getLineNumber(startOffset) != editor.getDocument().getLineNumber(next.getStartOffset());
+    private RangeHighlighter findNextHighlighter(int currentOffset) {
+        if (editor == null) return null;
+        MarkupModel model = editor.getMarkupModel();
+        RangeHighlighter[] highlighters = model.getAllHighlighters();
+        RangeHighlighter best = null;
+        int bestStart = Integer.MAX_VALUE;
+        int currentLine = editor.getDocument().getLineNumber(Math.min(editor.getDocument().getTextLength(), Math.max(0, currentOffset - 2)));
+
+        for (RangeHighlighter rh : highlighters) {
+            if (isValid(rh) && rh.getStartOffset() >= currentOffset) {
+                int line = editor.getDocument().getLineNumber(rh.getStartOffset());
+                if (line != currentLine && rh.getStartOffset() < bestStart) {
+                    best = rh;
+                    bestStart = rh.getStartOffset();
+                }
+            }
+        }
+        return best;
     }
 
     private boolean hasNext() {
         if (editor == null) return false;
-        final int offset = editor.getCaretModel().getPrimaryCaret().getOffset() + 2;
-        final int textLength = editor.getDocument().getTextLength();
-
-        if (offset >= textLength) {
-            return false;
-        }
-
-        final MarkupModelEx model = (MarkupModelEx) editor.getMarkupModel();
-        final MarkupIterator<RangeHighlighterEx> iterator = model.overlappingIterator(offset, textLength);
-        try {
-            return iterator.hasNext() && isValid(iterator.next(), offset, textLength);
-        } finally {
-            iterator.dispose();
-        }
+        int offset = editor.getCaretModel().getPrimaryCaret().getOffset() + 2;
+        return offset < editor.getDocument().getTextLength() && findNextHighlighter(offset) != null;
     }
 }

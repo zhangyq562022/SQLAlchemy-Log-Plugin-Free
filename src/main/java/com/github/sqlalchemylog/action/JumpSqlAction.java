@@ -1,13 +1,11 @@
 package com.github.sqlalchemylog.action;
 
-import com.intellij.execution.impl.ConsoleViewImpl;
+import com.intellij.execution.ui.ConsoleView;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
-import com.intellij.openapi.editor.ex.MarkupIterator;
-import com.intellij.openapi.editor.ex.MarkupModelEx;
-import com.intellij.openapi.editor.ex.RangeHighlighterEx;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.wm.IdeFocusManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -18,53 +16,31 @@ public abstract class JumpSqlAction extends AnAction {
 
     public static final int SQL_LAYER = 506;
 
-    protected final ConsoleViewImpl consoleView;
+    protected final ConsoleView consoleView;
     protected final Editor editor;
 
-    public JumpSqlAction(@Nullable String text, @Nullable String description, @Nullable Icon icon, ConsoleViewImpl consoleView) {
+    public JumpSqlAction(@Nullable String text, @Nullable String description, @Nullable Icon icon, ConsoleView consoleView, Editor editor) {
         super(text, description, icon);
         this.consoleView = consoleView;
-        this.editor = consoleView != null ? consoleView.getEditor() : null;
+        this.editor = editor;
     }
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
-        if (editor != null && !e.getInputEvent().isShiftDown()) {
+        if (editor != null && e.getInputEvent() != null && !e.getInputEvent().isShiftDown()) {
             editor.getSelectionModel().removeSelection();
         }
     }
 
-    protected int jump(int startOffset, int endOffset, boolean canBreak) {
-        if (editor == null) {
-            return -1;
-        }
-        final MarkupModelEx model = (MarkupModelEx) editor.getMarkupModel();
-        final MarkupIterator<RangeHighlighterEx> iterator = model.overlappingIterator(startOffset, endOffset);
-
-        int movedOffset = -1;
-
-        try {
-            while (iterator.hasNext()) {
-                final RangeHighlighterEx next = iterator.next();
-                if (isValid(next, startOffset, endOffset)) {
-                    movedOffset = next.getStartOffset();
-                    editor.getCaretModel().getPrimaryCaret().moveToOffset(movedOffset);
-                    editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
-                    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() ->
-                            IdeFocusManager.getGlobalInstance().requestFocus(editor.getContentComponent(), true));
-                    if (canBreak) {
-                        break;
-                    }
-                }
-            }
-        } finally {
-            iterator.dispose();
-        }
-
-        return movedOffset;
+    protected boolean isValid(RangeHighlighter next) {
+        return next != null && next.isValid() && next.getLayer() == SQL_LAYER;
     }
 
-    protected boolean isValid(RangeHighlighterEx next, int startOffset, int endOffset) {
-        return next.isValid() && next.getLayer() == SQL_LAYER;
+    protected void moveTo(int offset) {
+        if (editor == null) return;
+        editor.getCaretModel().getPrimaryCaret().moveToOffset(offset);
+        editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() ->
+                IdeFocusManager.getGlobalInstance().requestFocus(editor.getContentComponent(), true));
     }
 }

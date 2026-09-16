@@ -4,7 +4,6 @@ import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.ui.ColorChooserService;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTabbedPane;
@@ -112,14 +111,10 @@ public class SettingsDialogWrapper extends DialogWrapper {
         colorBox.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                Color chosen = ColorChooserService.getInstance().showDialog(
-                        project,
+                Color chosen = JColorChooser.showDialog(
                         getContentPane(),
                         "Choose " + labelText,
-                        colorBox.getBackground(),
-                        true,
-                        Collections.emptyList(),
-                        true
+                        colorBox.getBackground()
                 );
                 if (chosen != null) {
                     colorBox.setBackground(chosen);
