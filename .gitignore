@@ -8,3 +8,4 @@ out
 *.zip
 .DS_Store
 .intellijPlatform/
+.vscode/
