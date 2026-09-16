@@ -18,12 +18,15 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
     intellijPlatform {
-        def localIdeaPath = providers.gradleProperty('localIdeaPath').orNull
+        def userHome = System.getProperty('user.home')
+        def localIdeaPath = providers.gradleProperty('localIdeaPath').orNull ?: System.getenv('IDEA_HOME')
         if (localIdeaPath == null) {
             def candidates = [
-                "/Users/zyq/Applications/PyCharm.app",
-                "/Users/zyq/Applications/IntelliJ IDEA.app",
+                "$userHome/Applications/PyCharm.app",
+                "$userHome/Applications/IntelliJ IDEA.app",
                 "/Applications/PyCharm.app",
+                "/Applications/IntelliJ IDEA Ultimate.app",
+                "/Applications/IntelliJ IDEA CE.app",
                 "/Applications/IntelliJ IDEA.app"
             ]
             for (candidate in candidates) {

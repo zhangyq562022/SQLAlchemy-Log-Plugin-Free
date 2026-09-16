@@ -57,7 +57,7 @@ Inspired by the popular [`starxg/mybatis-log-plugin-free`](https://github.com/st
 ### Method 2: Build from Source
 ```bash
 # Clone the repository
-git clone https://github.com/starxg/SQLAlchemy-Log-Plugin-Free.git
+git clone https://github.com/zhangyq562022/SQLAlchemy-Log-Plugin-Free.git
 cd SQLAlchemy-Log-Plugin-Free
 
 # Build the plugin package

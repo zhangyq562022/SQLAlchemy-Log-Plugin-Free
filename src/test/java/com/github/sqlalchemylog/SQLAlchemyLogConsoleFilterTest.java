@@ -12,7 +12,7 @@ public class SQLAlchemyLogConsoleFilterTest {
 
     @Test
     public void testUserRealMySQLQueries() {
-        // User's exact query from dianshangxiaoer-zyq
+        // Real world FastAPI + SQLAlchemy query with prefix, timestamp and parameters
         String sql = "SELECT users.id AS users_id, users.user_id AS users_user_id, users.nickname AS users_nickname, users.level AS users_level, users.mobile_masked AS users_mobile_masked, users.created_at AS users_created_at \n" +
                 "FROM users \n" +
                 "WHERE users.user_id = %(user_id_1)s \n" +
