@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.github.sqlalchemylog.SQLAlchemy-Log-Plugin-Free</id>
     <name>SQLAlchemy Log Free</name>
-    <vendor email="zyq@example.com">zyq</vendor>
+    <vendor email="zhangyq@hotmail.com" url="https://github.com/zhangyq562022">zhangyq562022</vendor>
 
     <description><![CDATA[
     <b>SQLAlchemy Log Free</b> restores SQLAlchemy SQL logs into whole executable SQL statements with parameters automatically filled.
