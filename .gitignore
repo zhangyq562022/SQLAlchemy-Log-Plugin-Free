@@ -1,0 +1,10 @@
+*.iml
+.gradle
+/build
+.idea
+out
+*.class
+*.jar
+*.zip
+.DS_Store
+.intellijPlatform/

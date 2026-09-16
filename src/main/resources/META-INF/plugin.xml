@@ -1,0 +1,47 @@
+<idea-plugin>
+    <id>com.github.sqlalchemylog.SQLAlchemy-Log-Plugin-Free</id>
+    <name>SQLAlchemy Log Free</name>
+    <vendor email="zyq@example.com">zyq</vendor>
+
+    <description><![CDATA[
+    <b>SQLAlchemy Log Free</b> restores SQLAlchemy SQL logs into whole executable SQL statements with parameters automatically filled.
+    <br/>
+    <h3>Key Features:</h3>
+    <ul>
+        <li><b>Real-Time Interception</b>: Automatically captures SQL logs output by the SQLAlchemy engine in PyCharm / IntelliJ execution consoles.</li>
+        <li><b>Smart Parameter Binding</b>: Replaces placeholders (<code>?</code>, <code>%s</code>, <code>%(name)s</code>, <code>:name</code>, <code>$1</code>) with Python bound parameters.</li>
+        <li><b>Complex Python Type Support</b>: Accurately formats <code>None</code>, <code>datetime</code>, <code>date</code>, <code>time</code>, <code>Decimal</code>, <code>UUID</code>, strings with quotes, booleans, and batch lists.</li>
+        <li><b>Batch / Executemany Expansion</b>: Expands multi-row insert/update parameters into individual executable SQL queries.</li>
+        <li><b>Transaction Monitoring</b>: Visualizes <code>BEGIN</code>, <code>COMMIT</code>, <code>ROLLBACK</code> transaction states.</li>
+        <li><b>Dedicated Tool Window</b>: View queries in a dedicated dockable "SQLAlchemy Log" console with SQL syntax coloring.</li>
+        <li><b>Pretty Print Formatter</b>: Toggle automatic indentation and query formatting.</li>
+        <li><b>SQL Navigation</b>: Jump between SQL queries using Previous / Next SQL actions.</li>
+        <li><b>Filters & Colors</b>: Ignore noisy queries (e.g., <code>PRAGMA</code>, <code>table_info</code>) and customize query colors (SELECT, INSERT, UPDATE, DELETE).</li>
+    </ul>
+    <br/>
+    <h3>Usage:</h3>
+    <ol>
+        <li>Click <b>Tools -> SQLAlchemy Log Plugin</b> to open the log window.</li>
+        <li>Or right click inside any execution console and select <b>SQLAlchemy Log Plugin</b>.</li>
+        <li>Run your Python application (FastAPI, Flask, Django with SQLAlchemy, or script with <code>echo=True</code>). Executable queries will appear in real time!</li>
+    </ol>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <consoleFilterProvider implementation="com.github.sqlalchemylog.SQLAlchemyLogConsoleFilterProvider"/>
+        <executor implementation="com.github.sqlalchemylog.gui.SQLAlchemyLogExecutor" id="SQLAlchemy Log"/>
+    </extensions>
+
+    <actions>
+        <action id="com.github.sqlalchemylog.action.SQLAlchemyLogAction"
+                class="com.github.sqlalchemylog.action.SQLAlchemyLogAction"
+                text="SQLAlchemy Log"
+                description="SQLAlchemy Log Free Viewer"
+                icon="/icons/sqlalchemy.svg">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="ConsoleEditorPopupMenu" anchor="before" relative-to-action="ConsoleView.ClearAll"/>
+        </action>
+    </actions>
+</idea-plugin>

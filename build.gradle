@@ -1,0 +1,89 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.intellij.platform' version '2.18.1'
+}
+
+group = 'com.github.sqlalchemylog'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+    intellijPlatform {
+        defaultRepositories()
+    }
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    intellijPlatform {
+        def localIdeaPath = providers.gradleProperty('localIdeaPath').orNull
+        if (localIdeaPath == null) {
+            def candidates = [
+                "/Users/zyq/Applications/PyCharm.app",
+                "/Users/zyq/Applications/IntelliJ IDEA.app",
+                "/Applications/PyCharm.app",
+                "/Applications/IntelliJ IDEA.app"
+            ]
+            for (candidate in candidates) {
+                if (file(candidate).exists()) {
+                    localIdeaPath = candidate
+                    break
+                }
+            }
+        }
+
+        if (localIdeaPath != null && file(localIdeaPath).exists()) {
+            local localIdeaPath
+        } else {
+            intellijIdea '2026.2'
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    if (JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
+        options.release = 21
+    } else {
+        sourceCompatibility = '17'
+        targetCompatibility = '17'
+    }
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
+
+intellijPlatform {
+    buildSearchableOptions = false
+
+    pluginConfiguration {
+        id = 'com.github.sqlalchemylog.SQLAlchemy-Log-Plugin-Free'
+        name = 'SQLAlchemy Log Free'
+        version = project.version
+        description = '''
+            <h3>SQLAlchemy Log Free</h3>
+            <p>Restore SQLAlchemy SQL logs to executable SQL statements with parameters automatically filled in PyCharm & IntelliJ IDEs.</p>
+            <ul>
+                <li>Automatically capture SQL logs from SQLAlchemy engine output.</li>
+                <li>Reconstruct parameterized queries (?, %s, %(name)s, :name, $1) with bound Python parameter values.</li>
+                <li>Support complex Python types: None, datetime, date, time, Decimal, UUID, boolean, batch lists.</li>
+                <li>Dedicated Tool Window with real-time log output and syntax color highlighting.</li>
+                <li>SQL formatting (Pretty Print) toggle.</li>
+                <li>Quick navigation between SQL queries.</li>
+                <li>Filter logs by keywords and customize SQL colors.</li>
+            </ul>
+        '''
+        changeNotes = '''
+            <dl>
+                <dt><b>1.0.0</b></dt>
+                <dd>Initial release of SQLAlchemy Log Free plugin for PyCharm and IntelliJ IDEs.</dd>
+            </dl>
+        '''
+        ideaVersion {
+            sinceBuild = '241'
+        }
+    }
+}
