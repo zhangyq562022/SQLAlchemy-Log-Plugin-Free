@@ -41,16 +41,20 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
     // Transaction boundaries
     private static final Pattern TX_PATTERN = Pattern.compile("^(BEGIN\\s*\\(.*\\)|BEGIN|COMMIT|ROLLBACK|SAVEPOINT\\s+\\w+|RELEASE\\s+SAVEPOINT\\s+\\w+)\\b.*", Pattern.CASE_INSENSITIVE);
 
-    // Matches first SQL statement keyword
+    // Matches first SQL statement keyword, allowing optional leading comments (/* ... */ or -- ...)
     private static final Pattern SQL_START_PATTERN = Pattern.compile(
-            "^(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|TRUNCATE|MERGE|EXPLAIN|WITH|SHOW|SET)\\b",
-            Pattern.CASE_INSENSITIVE
+            "^(?:/\\*.*?\\*/\\s*|--[^\\r\\n]*\\s*)*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|TRUNCATE|MERGE|EXPLAIN|WITH|SHOW|SET|CALL|EXEC|EXECUTE|DO|LOCK|GRANT|REVOKE)\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
+
+    // Matches leading bracket token: [token]
+    private static final Pattern TOKEN_PREFIX_PATTERN = Pattern.compile("^\\[([^\\]]+)\\]\\s*(.*)", Pattern.DOTALL);
 
     private final Project project;
 
     private final StringBuilder pendingSql = new StringBuilder();
     private String lastLogPrefix = "";
+    private boolean expectingSqlNextLine = false;
 
     public SQLAlchemyLogConsoleFilter(Project project) {
         this.project = project;
@@ -72,23 +76,63 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
 
         if (isEngineLine) {
             String afterEngine = line.substring(engineIdx + enginePrefix.length());
-            Matcher matcher = AFTER_ENGINE_PATTERN.matcher(afterEngine);
-            if (matcher.find()) {
-                int startOffset = matcher.start();
-                content = afterEngine.substring(startOffset).trim();
-                logPrefix = line.substring(0, engineIdx + enginePrefix.length() + startOffset).trim();
-                logPrefix = cleanPrefix(logPrefix);
-            } else {
-                content = afterEngine.trim();
-                logPrefix = line.substring(0, engineIdx + enginePrefix.length()).trim();
+            // If afterEngine starts with dot (like .Engine or .Engine.name), strip logger hierarchy
+            int startPos = 0;
+            if (startPos < afterEngine.length() && afterEngine.charAt(startPos) == '.') {
+                while (startPos < afterEngine.length() && !Character.isWhitespace(afterEngine.charAt(startPos)) && afterEngine.charAt(startPos) != '[' && afterEngine.charAt(startPos) != ':') {
+                    startPos++;
+                }
             }
+            String rawAfter = afterEngine.substring(startPos).trim();
+            while (rawAfter.startsWith(":") || rawAfter.startsWith("-")) {
+                rawAfter = rawAfter.substring(1).trim();
+            }
+
+            // Check if afterEngine is empty (DDL multi-line next line case like CREATE TABLE)
+            if (rawAfter.isEmpty()) {
+                expectingSqlNextLine = true;
+                lastLogPrefix = cleanPrefix(line.substring(0, engineIdx + enginePrefix.length() + startPos));
+                return null;
+            }
+
+            content = rawAfter;
+            logPrefix = cleanPrefix(line.substring(0, engineIdx + enginePrefix.length() + startPos));
         } else {
             content = trimmed;
+        }
+
+        // If expecting SQL next line (e.g. DDL like CREATE TABLE)
+        if (!isEngineLine && expectingSqlNextLine) {
+            if (isSqlStart(content)) {
+                expectingSqlNextLine = false;
+                if (pendingSql.length() > 0) {
+                    flushPendingSql(lastLogPrefix);
+                }
+                pendingSql.append(content);
+                return null;
+            } else {
+                expectingSqlNextLine = false;
+            }
         }
 
         // If not an engine line and no query currently pending, ignore
         if (!isEngineLine && pendingSql.length() == 0) {
             return null;
+        }
+
+        // Check if content has a logging_token: [token]
+        if (isEngineLine) {
+            Matcher tokenMatcher = TOKEN_PREFIX_PATTERN.matcher(content);
+            if (tokenMatcher.find()) {
+                String possibleToken = tokenMatcher.group(1);
+                String rest = tokenMatcher.group(2).trim();
+                boolean isParamStats = isParameterDataStart(rest);
+                if (!isParamStats) {
+                    String tokenStr = "[" + possibleToken + "]";
+                    content = rest;
+                    logPrefix = logPrefix.isEmpty() ? tokenStr : (logPrefix + " " + tokenStr);
+                }
+            }
         }
 
         // Keyword exclusion check
@@ -163,6 +207,18 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
         }
 
         return null;
+    }
+
+    private static boolean isParameterDataStart(String s) {
+        if (s == null || s.isEmpty()) return true;
+        char c = s.charAt(0);
+        if (c == '(' || c == '{') return true;
+        if (c == '[') {
+            if (s.length() == 1) return true;
+            char c2 = s.charAt(1);
+            return c2 == '(' || c2 == '{' || c2 == '[' || c2 == ']' || s.startsWith("[SQL parameters hidden");
+        }
+        return false;
     }
 
     private void flushPendingSql(String prefix) {

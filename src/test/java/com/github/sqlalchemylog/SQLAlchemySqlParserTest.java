@@ -83,4 +83,66 @@ public class SQLAlchemySqlParserTest {
         List<String> deleteRes = SQLAlchemySqlParser.restoreSql(deleteSql, deleteParams);
         assertEquals("DELETE FROM users WHERE users.age < 20", deleteRes.get(0));
     }
+
+    @Test
+    public void testOracleNumericColonPlaceholders() {
+        String sql = "SELECT * FROM employees WHERE dept_id = :1 AND salary > :2";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("(10, 50000)");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("SELECT * FROM employees WHERE dept_id = 10 AND salary > 50000", result.get(0));
+    }
+
+    @Test
+    public void testPostgreSQLJsonbOperatorPreserved() {
+        // In PostgreSQL, '?' is the JSONB top-level key existence operator.
+        // When parameters are passed via %s (psycopg2), '?' must NOT be treated as a placeholder!
+        String sql = "SELECT id FROM documents WHERE data ? %s AND status = %s";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("('metadata', 'PUBLISHED')");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("SELECT id FROM documents WHERE data ? 'metadata' AND status = 'PUBLISHED'", result.get(0));
+    }
+
+    @Test
+    public void testAsyncpgWithCast() {
+        String sql = "SELECT users.id, users.name FROM users WHERE users.name = $1::VARCHAR AND users.age >= $2";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("('Eve', 21)");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("SELECT users.id, users.name FROM users WHERE users.name = 'Eve'::VARCHAR AND users.age >= 21", result.get(0));
+    }
+
+    @Test
+    public void testPlaceholdersInsideStringLiteralsNotReplaced() {
+        String sql = "SELECT * FROM logs WHERE message = 'User said: :1 or $1 or ? or %s' AND user_id = :1";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("(99,)");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("SELECT * FROM logs WHERE message = 'User said: :1 or $1 or ? or %s' AND user_id = 99", result.get(0));
+    }
+
+    @Test
+    public void testMSSQLOutputClause() {
+        String sql = "INSERT INTO users (name, age) OUTPUT inserted.id VALUES (:name, :age)";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("{'name': 'Frank', 'age': 45}");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("INSERT INTO users (name, age) OUTPUT inserted.id VALUES ('Frank', 45)", result.get(0));
+    }
+
+    @Test
+    public void testCommentsAndStoredProcedure() {
+        String sql = "/* get active users */ CALL get_active_users(?, ?)";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse("('admin', 10)");
+
+        List<String> result = SQLAlchemySqlParser.restoreSql(sql, params);
+        assertEquals(1, result.size());
+        assertEquals("/* get active users */ CALL get_active_users('admin', 10)", result.get(0));
+    }
 }

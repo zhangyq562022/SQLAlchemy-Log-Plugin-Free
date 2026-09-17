@@ -74,18 +74,12 @@ public class SQLAlchemySqlParser {
         }
 
         if (!positionalParams.isEmpty()) {
-            // Check for numeric $1, $2
-            Matcher numMatcher = NUMERIC_PATTERN.matcher(sql);
-            if (numMatcher.find()) {
-                StringBuffer sb = new StringBuffer();
-                numMatcher.reset();
-                while (numMatcher.find()) {
-                    int index = Integer.parseInt(numMatcher.group(1)) - 1;
-                    String val = (index >= 0 && index < positionalParams.size()) ? positionalParams.get(index) : "NULL";
-                    numMatcher.appendReplacement(sb, Matcher.quoteReplacement(val));
-                }
-                numMatcher.appendTail(sb);
-                sql = sb.toString();
+            // Check for numeric $1, $2 (asyncpg)
+            if (containsNumericPlaceholders(sql, '$')) {
+                sql = replaceNumericPlaceholders(sql, positionalParams, '$');
+            } else if (containsNumericPlaceholders(sql, ':')) {
+                // Check for numeric :1, :2 (Oracle)
+                sql = replaceNumericPlaceholders(sql, positionalParams, ':');
             } else {
                 // Check for ? (qmark) or %s (format)
                 sql = replacePositionalPlaceholders(sql, positionalParams);
@@ -167,6 +161,7 @@ public class SQLAlchemySqlParser {
         boolean inSingleQuote = false;
         boolean inDoubleQuote = false;
         int paramIdx = 0;
+        boolean useFormat = containsFormatPlaceholder(sql);
 
         for (int i = 0; i < len; i++) {
             char c = sql.charAt(i);
@@ -189,31 +184,154 @@ public class SQLAlchemySqlParser {
             }
 
             if (!inSingleQuote && !inDoubleQuote) {
-                // Qmark placeholder '?'
-                if (c == '?') {
-                    if (paramIdx < positionalParams.size()) {
-                        result.append(positionalParams.get(paramIdx++));
-                    } else {
-                        result.append("?");
-                    }
-                    continue;
-                }
-
-                // Format placeholder '%s' (skip %% which is escaped percent)
-                if (c == '%' && i + 1 < len) {
-                    if (sql.charAt(i + 1) == '%') {
-                        result.append("%%");
-                        i++;
-                        continue;
-                    } else if (sql.charAt(i + 1) == 's') {
+                if (!useFormat) {
+                    // Qmark placeholder '?'
+                    if (c == '?') {
                         if (paramIdx < positionalParams.size()) {
                             result.append(positionalParams.get(paramIdx++));
                         } else {
-                            result.append("%s");
+                            result.append("?");
                         }
+                        continue;
+                    }
+                } else {
+                    // Format placeholder '%s' (skip %% which is escaped percent)
+                    if (c == '%' && i + 1 < len) {
+                        if (sql.charAt(i + 1) == '%') {
+                            result.append("%%");
+                            i++;
+                            continue;
+                        } else if (sql.charAt(i + 1) == 's') {
+                            if (paramIdx < positionalParams.size()) {
+                                result.append(positionalParams.get(paramIdx++));
+                            } else {
+                                result.append("%s");
+                            }
+                            i++;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            result.append(c);
+        }
+
+        return result.toString();
+    }
+
+    private static boolean containsFormatPlaceholder(String sql) {
+        int len = sql.length();
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        for (int i = 0; i < len; i++) {
+            char c = sql.charAt(i);
+            if (c == '\'' && !inDoubleQuote) {
+                if (inSingleQuote && i + 1 < len && sql.charAt(i + 1) == '\'') {
+                    i++;
+                    continue;
+                }
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+            if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+            if (!inSingleQuote && !inDoubleQuote) {
+                if (c == '%' && i + 1 < len) {
+                    if (sql.charAt(i + 1) == '%') {
+                        i++;
+                    } else if (sql.charAt(i + 1) == 's') {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsNumericPlaceholders(String sql, char prefix) {
+        int len = sql.length();
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        for (int i = 0; i < len; i++) {
+            char c = sql.charAt(i);
+            if (c == '\'' && !inDoubleQuote) {
+                if (inSingleQuote && i + 1 < len && sql.charAt(i + 1) == '\'') {
+                    i++;
+                    continue;
+                }
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+            if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+            if (!inSingleQuote && !inDoubleQuote) {
+                if (prefix == ':' && c == ':' && i + 1 < len && sql.charAt(i + 1) == ':') {
+                    i++;
+                    continue;
+                }
+                if (c == prefix && i + 1 < len && Character.isDigit(sql.charAt(i + 1))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String replaceNumericPlaceholders(String sql, List<String> positionalParams, char prefix) {
+        StringBuilder result = new StringBuilder();
+        int len = sql.length();
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+
+        for (int i = 0; i < len; i++) {
+            char c = sql.charAt(i);
+
+            if (c == '\'' && !inDoubleQuote) {
+                if (inSingleQuote && i + 1 < len && sql.charAt(i + 1) == '\'') {
+                    result.append("''");
+                    i++;
+                    continue;
+                }
+                inSingleQuote = !inSingleQuote;
+                result.append(c);
+                continue;
+            }
+
+            if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+                result.append(c);
+                continue;
+            }
+
+            if (!inSingleQuote && !inDoubleQuote) {
+                if (prefix == ':' && c == ':' && i + 1 < len) {
+                    if (sql.charAt(i + 1) == ':') {
+                        result.append("::");
                         i++;
                         continue;
                     }
+                    if (i > 0 && sql.charAt(i - 1) == ':') {
+                        result.append(c);
+                        continue;
+                    }
+                }
+
+                if (c == prefix && i + 1 < len && Character.isDigit(sql.charAt(i + 1))) {
+                    int start = i + 1;
+                    int end = start;
+                    while (end < len && Character.isDigit(sql.charAt(end))) {
+                        end++;
+                    }
+                    int idx = Integer.parseInt(sql.substring(start, end)) - 1;
+                    String val = (idx >= 0 && idx < positionalParams.size()) ? positionalParams.get(idx) : "NULL";
+                    result.append(val);
+                    i = end - 1;
+                    continue;
                 }
             }
 

@@ -25,6 +25,15 @@ public class PythonLiteralParser {
     private static final Pattern UUID_PATTERN = Pattern.compile(
             "UUID\\(['\"]?([a-fA-F0-9\\-]+)['\"]?\\)"
     );
+    private static final Pattern TIMEDELTA_PATTERN = Pattern.compile(
+            "datetime\\.timedelta\\((.*?)\\)"
+    );
+    private static final Pattern ENUM_PATTERN = Pattern.compile(
+            "^<[a-zA-Z0-9_.]+\\s*:\\s*(.+)>$"
+    );
+    private static final Pattern IP_PATTERN = Pattern.compile(
+            "^(?:IPv4Address|IPv6Address|IPv4Network|IPv6Network|IPv4Interface|IPv6Interface)\\(['\"]([^'\"]+)['\"]\\)$"
+    );
 
     public static class ParsedParams {
         private final boolean isBatch;
@@ -75,7 +84,8 @@ public class PythonLiteralParser {
             return new ParsedParams(Collections.emptyList(), Collections.emptyList());
         }
         String trimmed = text.trim();
-        if (trimmed.isEmpty() || "()".equals(trimmed) || "{}".equals(trimmed) || "[]".equals(trimmed)) {
+        if (trimmed.isEmpty() || "()".equals(trimmed) || "{}".equals(trimmed) || "[]".equals(trimmed)
+                || trimmed.contains("[SQL parameters hidden")) {
             return new ParsedParams(Collections.emptyList(), Collections.emptyList());
         }
 
@@ -245,14 +255,43 @@ public class PythonLiteralParser {
             return "'" + uuidMatcher.group(1) + "'";
         }
 
+        // Check timedelta(...)
+        Matcher tdMatcher = TIMEDELTA_PATTERN.matcher(trimmed);
+        if (tdMatcher.find()) {
+            return parseTimedelta(tdMatcher.group(1));
+        }
+
+        // Check Enum: <Role.ADMIN: 'admin'> or <Level.ONE: 1>
+        Matcher enumMatcher = ENUM_PATTERN.matcher(trimmed);
+        if (enumMatcher.find()) {
+            return formatToSqlLiteral(enumMatcher.group(1));
+        }
+
+        // Check IP: IPv4Address('192.168.1.1')
+        Matcher ipMatcher = IP_PATTERN.matcher(trimmed);
+        if (ipMatcher.find()) {
+            return "'" + ipMatcher.group(1) + "'";
+        }
+
+        // Check bytearray(b'...') or bytearray(b"...")
+        if (trimmed.startsWith("bytearray(") && trimmed.endsWith(")")) {
+            String inner = trimmed.substring("bytearray(".length(), trimmed.length() - 1).trim();
+            return formatToSqlLiteral(inner);
+        }
+
+        // Check <memory at 0x...>
+        if (trimmed.startsWith("<memory at ") || trimmed.startsWith("<memoryview")) {
+            return "'<binary>'";
+        }
+
         // Check bytes: b'...' or b"..."
         if (trimmed.startsWith("b'") && trimmed.endsWith("'") && trimmed.length() >= 3) {
             String content = trimmed.substring(2, trimmed.length() - 1);
-            return "'" + escapeSqlString(content) + "'";
+            return "'" + escapeSqlString(unescapePythonString(content)) + "'";
         }
         if (trimmed.startsWith("b\"") && trimmed.endsWith("\"") && trimmed.length() >= 3) {
             String content = trimmed.substring(2, trimmed.length() - 1);
-            return "'" + escapeSqlString(content) + "'";
+            return "'" + escapeSqlString(unescapePythonString(content)) + "'";
         }
 
         // String literals: '...' or "..."
@@ -264,6 +303,18 @@ public class PythonLiteralParser {
             }
         }
 
+        // Dict / JSON: {'a': 1, 'b': 'val'}
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            String json = convertPythonToJson(trimmed);
+            return "'" + escapeSqlString(json) + "'";
+        }
+
+        // List / Array: [1, 2, 'three']
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            String json = convertPythonToJson(trimmed);
+            return "'" + escapeSqlString(json) + "'";
+        }
+
         // Numeric literals: integer, float, hex
         if (isNumeric(trimmed)) {
             return trimmed;
@@ -271,6 +322,141 @@ public class PythonLiteralParser {
 
         // Default fallback: wrap in quotes or as literal
         return "'" + escapeSqlString(trimmed) + "'";
+    }
+
+    private static String parseTimedelta(String content) {
+        long days = 0;
+        long seconds = 0;
+        long micros = 0;
+
+        if (content.contains("=")) {
+            for (String part : content.split(",")) {
+                String[] kv = part.split("=");
+                if (kv.length == 2) {
+                    String k = kv[0].trim();
+                    long v = 0;
+                    try {
+                        v = Long.parseLong(kv[1].trim());
+                    } catch (NumberFormatException ignored) {}
+                    if ("days".equals(k)) days = v;
+                    else if ("seconds".equals(k)) seconds = v;
+                    else if ("microseconds".equals(k)) micros = v;
+                }
+            }
+        } else if (!content.trim().isEmpty()) {
+            String[] parts = content.split(",");
+            if (parts.length > 0) {
+                try { days = Long.parseLong(parts[0].trim()); } catch (Exception ignored) {}
+            }
+            if (parts.length > 1) {
+                try { seconds = Long.parseLong(parts[1].trim()); } catch (Exception ignored) {}
+            }
+            if (parts.length > 2) {
+                try { micros = Long.parseLong(parts[2].trim()); } catch (Exception ignored) {}
+            }
+        }
+
+        long hours = seconds / 3600;
+        long remSec = seconds % 3600;
+        long minutes = remSec / 60;
+        long secs = remSec % 60;
+
+        StringBuilder sb = new StringBuilder("'");
+        if (days != 0) {
+            sb.append(days).append(Math.abs(days) == 1 ? " day " : " days ");
+        }
+        sb.append(String.format("%02d:%02d:%02d", hours, minutes, secs));
+        if (micros > 0) {
+            sb.append(String.format(".%06d", micros));
+        }
+        sb.append("'");
+        return sb.toString();
+    }
+
+    public static String convertPythonToJson(String token) {
+        String trimmed = token.trim();
+        if (trimmed.isEmpty() || "None".equals(trimmed)) {
+            return "null";
+        }
+        if ("True".equals(trimmed)) {
+            return "true";
+        }
+        if ("False".equals(trimmed)) {
+            return "false";
+        }
+        if (isNumeric(trimmed)) {
+            return trimmed;
+        }
+        if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith("\"") && trimmed.endsWith("\""))) {
+            if (trimmed.length() >= 2) {
+                String inner = trimmed.substring(1, trimmed.length() - 1);
+                String unescaped = unescapePythonString(inner);
+                return "\"" + escapeJsonString(unescaped) + "\"";
+            }
+        }
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            String inner = trimmed.substring(1, trimmed.length() - 1).trim();
+            if (inner.isEmpty()) return "{}";
+            List<String> pairs = splitTopLevel(inner, ',');
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            for (String pair : pairs) {
+                String tp = pair.trim();
+                if (tp.isEmpty()) continue;
+                int colonIdx = findTopLevelColon(tp);
+                if (colonIdx != -1) {
+                    String k = tp.substring(0, colonIdx).trim();
+                    String v = tp.substring(colonIdx + 1).trim();
+                    if (!first) sb.append(", ");
+                    first = false;
+                    sb.append("\"").append(escapeJsonString(unquote(k))).append("\": ");
+                    sb.append(convertPythonToJson(v));
+                }
+            }
+            sb.append("}");
+            return sb.toString();
+        }
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            String inner = trimmed.substring(1, trimmed.length() - 1).trim();
+            if (inner.isEmpty()) return "[]";
+            List<String> elements = splitTopLevel(inner, ',');
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (String elem : elements) {
+                String te = elem.trim();
+                if (te.isEmpty()) continue;
+                if (!first) sb.append(", ");
+                first = false;
+                sb.append(convertPythonToJson(te));
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+        return "\"" + escapeJsonString(trimmed) + "\"";
+    }
+
+    private static String escapeJsonString(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\b': sb.append("\\b"); break;
+                case '\f': sb.append("\\f"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < ' ') {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                    break;
+            }
+        }
+        return sb.toString();
     }
 
     private static String unquote(String str) {

@@ -102,4 +102,57 @@ public class SQLAlchemyLogConsoleFilterTest {
         assertEquals(1, restored.size());
         assertEquals("SELECT DATABASE()", restored.get(0));
     }
+
+    @Test
+    public void testInsertManyValuesRestoration() {
+        String sql = "INSERT INTO t (val) VALUES (?), (?) RETURNING id";
+        String paramLiteral = "('a', 'b')";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertEquals("INSERT INTO t (val) VALUES ('a'), ('b') RETURNING id", restored.get(0));
+    }
+
+    @Test
+    public void testLoggingTokenParsingAndSqlExtraction() {
+        // Line with logging_token [req_12345]
+        String sql = "SELECT 1 WHERE 1 = ?";
+        String paramLiteral = "(100,)";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertEquals("SELECT 1 WHERE 1 = 100", restored.get(0));
+    }
+
+    @Test
+    public void testDDLMultiLineTableCreation() {
+        String ddl = "CREATE TABLE all_types (\n" +
+                "\tid INTEGER NOT NULL, \n" +
+                "\tstr_col VARCHAR(50), \n" +
+                "\tPRIMARY KEY (id)\n" +
+                ")";
+        String paramLiteral = "()";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(ddl, params);
+
+        assertEquals(1, restored.size());
+        assertTrue(restored.get(0).startsWith("CREATE TABLE all_types"));
+    }
+
+    @Test
+    public void testStoredProcedureWithFormatAndComments() {
+        String sql = "/* query_id=987 */ CALL sync_user_orders(%s, %s)";
+        String paramLiteral = "('u2001', 50)";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertEquals("/* query_id=987 */ CALL sync_user_orders('u2001', 50)", restored.get(0));
+    }
 }

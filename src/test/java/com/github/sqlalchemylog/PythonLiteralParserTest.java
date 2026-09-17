@@ -113,4 +113,79 @@ public class PythonLiteralParserTest {
         assertEquals("'Diana'", params.getNamedBatches().get(1).get("name"));
         assertEquals("35", params.getNamedBatches().get(1).get("age"));
     }
+
+    @Test
+    public void testDatetimeWithoutSecondsAndMicroseconds() {
+        String input = "(datetime.datetime(2026, 9, 17, 8, 30), datetime.time(8, 30))";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(2, items.size());
+        assertEquals("'2026-09-17 08:30:00'", items.get(0));
+        assertEquals("'08:30:00'", items.get(1));
+    }
+
+    @Test
+    public void testTimedelta() {
+        String input = "(datetime.timedelta(days=1, seconds=3665, microseconds=123456), datetime.timedelta(days=3), datetime.timedelta(seconds=3600))";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(3, items.size());
+        assertEquals("'1 day 01:01:05.123456'", items.get(0));
+        assertEquals("'3 days 00:00:00'", items.get(1));
+        assertEquals("'01:00:00'", items.get(2));
+    }
+
+    @Test
+    public void testPythonEnums() {
+        String input = "(<Role.ADMIN: 'admin'>, <Level.ONE: 1>)";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(2, items.size());
+        assertEquals("'admin'", items.get(0));
+        assertEquals("1", items.get(1));
+    }
+
+    @Test
+    public void testBytearrayAndMemoryview() {
+        String input = "(bytearray(b'secret_key'), <memory at 0x10aa225c0>)";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(2, items.size());
+        assertEquals("'secret_key'", items.get(0));
+        assertEquals("'<binary>'", items.get(1));
+    }
+
+    @Test
+    public void testIpAddress() {
+        String input = "(IPv4Address('192.168.1.1'), IPv6Address('2001:db8::1'))";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(2, items.size());
+        assertEquals("'192.168.1.1'", items.get(0));
+        assertEquals("'2001:db8::1'", items.get(1));
+    }
+
+    @Test
+    public void testJsonDictAndListLiterals() {
+        String input = "({'status': 'ok', 'active': True, 'count': 42, 'desc': \"user's item\", 'null_val': None}, ['apple', 'banana', 100])";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        List<String> items = params.getFirstPositional();
+        assertEquals(2, items.size());
+        assertEquals("'{\"status\": \"ok\", \"active\": true, \"count\": 42, \"desc\": \"user''s item\", \"null_val\": null}'", items.get(0));
+        assertEquals("'[\"apple\", \"banana\", 100]'", items.get(1));
+    }
+
+    @Test
+    public void testHiddenParametersGuard() {
+        String input = "[SQL parameters hidden due to hide_parameters=True]";
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(input);
+
+        assertTrue(params.isEmpty());
+    }
 }
