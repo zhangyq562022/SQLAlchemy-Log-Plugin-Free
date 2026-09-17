@@ -60,11 +60,11 @@
 ## 安装方式
 
 ### 方式 1：本地 Zip 包离线安装
-1. 下载或编译生成的插件压缩包：`build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.2.zip`。
+1. 下载或编译生成的插件压缩包：`build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.3.zip`。
 2. 打开 PyCharm / IntelliJ：
    - 进入 **Settings**（`Cmd + ,` 或 `Ctrl + Alt + S`） &rarr; **Plugins**。
    - 点击齿轮图标 :gear: &rarr; **Install Plugin from Disk...**。
-   - 选择 `SQLAlchemy-Log-Plugin-Free-1.0.2.zip` 文件。
+   - 选择 `SQLAlchemy-Log-Plugin-Free-1.0.3.zip` 文件。
    - 点击 **Restart IDE** 重启生效。
 
 ### 方式 2：源码编译
@@ -76,7 +76,7 @@ cd SQLAlchemy-Log-Plugin-Free
 ./gradlew buildPlugin
 
 # 生成的安装包位于：
-# build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.2.zip
+# build/distributions/SQLAlchemy-Log-Plugin-Free-1.0.3.zip
 ```
 
 ---
