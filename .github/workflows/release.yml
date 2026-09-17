@@ -31,7 +31,18 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build Plugin
-        run: ./gradlew buildPlugin --stacktrace
+        id: build
+        run: |
+          set -o pipefail
+          ./gradlew buildPlugin --stacktrace --info 2>&1 | tee build.log
+
+      - name: Report Build Failure
+        if: failure() && steps.build.outcome == 'failure'
+        run: |
+          echo "## ❌ Gradle Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          tail -n 120 build.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: List Artifacts
         run: ls -la build/distributions/
