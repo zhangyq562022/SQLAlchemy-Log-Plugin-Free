@@ -43,6 +43,11 @@ jobs:
           echo '```text' >> $GITHUB_STEP_SUMMARY
           tail -n 120 build.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              echo "::error title=BuildLog::$line"
+            fi
+          done < <(tail -n 25 build.log)
 
       - name: List Artifacts
         run: ls -la build/distributions/
