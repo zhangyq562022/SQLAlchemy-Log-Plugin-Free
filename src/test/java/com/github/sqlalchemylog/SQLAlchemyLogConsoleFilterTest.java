@@ -46,13 +46,59 @@ public class SQLAlchemyLogConsoleFilterTest {
     }
 
     @Test
-    public void testRawSqlEmptyDict() {
+    public void testSQLiteInsertPositionalTuple() {
+        String sql = "INSERT INTO user_account (name, fullname) VALUES (?, ?) RETURNING id";
+        String paramLiteral = "('Mr 张', '张三')";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertEquals("INSERT INTO user_account (name, fullname) VALUES ('Mr 张', '张三') RETURNING id", restored.get(0));
+    }
+
+    @Test
+    public void testSQLiteSelectInPositionalTuple() {
+        String sql = "SELECT user_account.id, user_account.name, user_account.fullname \n" +
+                "FROM user_account \n" +
+                "WHERE user_account.name IN (?, ?)";
+        String paramLiteral = "('Mr 张', 'sandy')";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertTrue(restored.get(0).contains("WHERE user_account.name IN ('Mr 张', 'sandy')"));
+    }
+
+    @Test
+    public void testSQLiteSelectSingleElementTupleWithComma() {
+        String sql = "SELECT user_account.id, user_account.name, user_account.fullname \n" +
+                "FROM user_account \n" +
+                "WHERE user_account.name = ?";
+        String paramLiteral = "('Mr 张',)";
+
+        PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
+        List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
+
+        assertEquals(1, restored.size());
+        assertTrue(restored.get(0).contains("WHERE user_account.name = 'Mr 张'"));
+    }
+
+    @Test
+    public void testRawSqlEmptyDictAndEmptyTuple() {
         String sql = "SELECT DATABASE()";
         String paramLiteral = "{}";
 
         PythonLiteralParser.ParsedParams params = PythonLiteralParser.parse(paramLiteral);
         List<String> restored = SQLAlchemySqlParser.restoreSql(sql, params);
 
+        assertEquals(1, restored.size());
+        assertEquals("SELECT DATABASE()", restored.get(0));
+
+        // Empty tuple like [raw sql] ()
+        params = PythonLiteralParser.parse("()");
+        restored = SQLAlchemySqlParser.restoreSql(sql, params);
         assertEquals(1, restored.size());
         assertEquals("SELECT DATABASE()", restored.get(0));
     }

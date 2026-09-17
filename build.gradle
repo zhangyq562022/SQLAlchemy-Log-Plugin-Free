@@ -82,7 +82,7 @@ intellijPlatform {
         changeNotes = '''
             <dl>
                 <dt><b>1.0.2</b></dt>
-                <dd>Eliminate internal ExecutionBundle API usage and modernise deprecated IntelliJ platform APIs for full compatibility with IntelliJ 2024.1 through 2026.3+.</dd>
+                <dd>Fix EDT threading assertion (Access is allowed from Event Dispatch Thread only) during console filter execution by introducing safe asynchronous UI initialization and log queueing; eliminate internal ExecutionBundle API usages; optimize SQLite query handling.</dd>
                 <dt><b>1.0.1</b></dt>
                 <dd>Fix internal and deprecated API usages to ensure full compatibility with modern IntelliJ platforms (2024.1 through 2026.3+).</dd>
                 <dt><b>1.0.0</b></dt>

@@ -11,6 +11,7 @@ import com.intellij.ui.JBColor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -37,11 +38,10 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
     // Matches parameter lines like [generated in 0.00018s] ('Alice', 18) or [raw sql] {}
     private static final Pattern PARAM_LINE_PATTERN = Pattern.compile("^(\\[[^\\]]+\\])\\s*(.*)", Pattern.DOTALL);
 
-    private static final Pattern TX_PATTERN = Pattern.compile(
-            "^(BEGIN(?:\\s*\\([^)]*\\))?|COMMIT|ROLLBACK|SAVEPOINT\\s+\\w+|RELEASE\\s+SAVEPOINT\\s+\\w+)$",
-            Pattern.CASE_INSENSITIVE
-    );
+    // Transaction boundaries
+    private static final Pattern TX_PATTERN = Pattern.compile("^(BEGIN\\s*\\(.*\\)|BEGIN|COMMIT|ROLLBACK|SAVEPOINT\\s+\\w+|RELEASE\\s+SAVEPOINT\\s+\\w+)\\b.*", Pattern.CASE_INSENSITIVE);
 
+    // Matches first SQL statement keyword
     private static final Pattern SQL_START_PATTERN = Pattern.compile(
             "^(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA|TRUNCATE|MERGE|EXPLAIN|WITH|SHOW|SET)\\b",
             Pattern.CASE_INSENSITIVE
@@ -100,9 +100,9 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
             }
         }
 
-        // Lazy auto-initialize manager so user does NOT have to manually click Tools -> ...
-        final SQLAlchemyLogManager manager = SQLAlchemyLogManager.getInstanceOrCreate(project);
-        if (!manager.isRunning()) {
+        // If manager exists and has been stopped by user, do not process
+        SQLAlchemyLogManager manager = SQLAlchemyLogManager.getInstance(project);
+        if (manager != null && !manager.isRunning()) {
             return null;
         }
 
@@ -110,13 +110,13 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
         Matcher txMatcher = TX_PATTERN.matcher(content);
         if (isEngineLine && txMatcher.matches()) {
             if (pendingSql.length() > 0) {
-                flushPendingSql(manager, lastLogPrefix);
+                flushPendingSql(lastLogPrefix);
             }
             int txColor = PropertiesComponent.getInstance(project).getInt(
                     TX_SQL_COLOR_KEY,
                     new JBColor(0x616161, 0x808080).getRGB()
             );
-            manager.println(logPrefix, content, txColor);
+            SQLAlchemyLogManager.printOrQueue(project, logPrefix, content, txColor);
             return null;
         }
 
@@ -137,7 +137,7 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
 
                 for (String restored : restoredQueries) {
                     int color = getSqlColor(restored);
-                    manager.println(fullPrefix, restored, color);
+                    SQLAlchemyLogManager.printOrQueue(project, fullPrefix, restored, color);
                 }
 
                 pendingSql.setLength(0);
@@ -149,7 +149,7 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
         // If it's a new SQL query line
         if (isEngineLine && isSqlStart(content)) {
             if (pendingSql.length() > 0) {
-                flushPendingSql(manager, lastLogPrefix);
+                flushPendingSql(lastLogPrefix);
             }
             pendingSql.append(content);
             lastLogPrefix = logPrefix;
@@ -165,14 +165,14 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
         return null;
     }
 
-    private void flushPendingSql(SQLAlchemyLogManager manager, String prefix) {
+    private void flushPendingSql(String prefix) {
         if (pendingSql.length() == 0) {
             return;
         }
         String sql = pendingSql.toString().trim();
         if (!sql.isEmpty()) {
             int color = getSqlColor(sql);
-            manager.println(prefix, sql, color);
+            SQLAlchemyLogManager.printOrQueue(project, prefix, sql, color);
         }
         pendingSql.setLength(0);
     }
@@ -198,7 +198,18 @@ public class SQLAlchemyLogConsoleFilter implements Filter {
         if (manager != null) {
             return manager.getKeywords();
         }
-        return List.of();
+        String keywordsStr = PropertiesComponent.getInstance(project).getValue(KEYWORDS_KEY, "PRAGMA\ntable_info");
+        if (keywordsStr == null || keywordsStr.trim().isEmpty()) {
+            return List.of();
+        }
+        List<String> list = new ArrayList<>();
+        for (String line : keywordsStr.split("\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) {
+                list.add(trimmed);
+            }
+        }
+        return list;
     }
 
     private int getSqlColor(String sql) {
